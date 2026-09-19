@@ -1,12 +1,26 @@
 import { NextResponse } from "next/server";
 
+import { getCurrentUserFromRequest } from "@/lib/auth";
 import { initDb, query } from "@/lib/db";
 
-export async function GET() {
+type TodoRow = {
+  id: number;
+  text: string;
+  completed: boolean;
+};
+
+export async function GET(request: Request) {
   await initDb();
 
-  const { rows } = await query(
-    "SELECT id, text, completed FROM todos ORDER BY id DESC",
+  const user = await getCurrentUserFromRequest(request);
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { rows } = await query<TodoRow>(
+    "SELECT id, text, completed FROM todos WHERE user_id = $1 ORDER BY id DESC",
+    [user.id],
   );
 
   return NextResponse.json(rows);
@@ -14,6 +28,12 @@ export async function GET() {
 
 export async function POST(request: Request) {
   await initDb();
+
+  const user = await getCurrentUserFromRequest(request);
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const body = await request.json();
   const text = String(body?.text ?? "").trim();
@@ -25,19 +45,26 @@ export async function POST(request: Request) {
     );
   }
 
-  const { rows } = await query(
-    "INSERT INTO todos (text, completed) VALUES ($1, false) RETURNING id, text, completed",
-    [text],
+  const { rows } = await query<TodoRow>(
+    "INSERT INTO todos (text, completed, user_id) VALUES ($1, false, $2) RETURNING id, text, completed",
+    [text, user.id],
   );
 
   return NextResponse.json(rows[0], { status: 201 });
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   await initDb();
 
-  const { rows } = await query(
-    "DELETE FROM todos WHERE completed = true RETURNING id, text, completed",
+  const user = await getCurrentUserFromRequest(request);
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { rows } = await query<TodoRow>(
+    "DELETE FROM todos WHERE completed = true AND user_id = $1 RETURNING id, text, completed",
+    [user.id],
   );
 
   return NextResponse.json(rows);
